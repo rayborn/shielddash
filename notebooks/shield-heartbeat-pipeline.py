@@ -3,7 +3,7 @@
 
 # ## Set-up: imports, constants, helper functions
 
-# In[11]:
+# In[1]:
 
 import boto3
 import csv
@@ -22,7 +22,7 @@ from boto3.s3.transfer import S3Transfer
 from moztelemetry      import get_pings, get_pings_properties, get_one_ping_per_client, get_clients_history, get_records
 
 
-# In[12]:
+# In[2]:
 
 # Parameters
 # TODO Argparse
@@ -38,26 +38,26 @@ _PATH     = "normandy/data/heartbeat/daily/"
 _TRANSFER = None
 
 
-# In[13]:
+# In[3]:
 
 # Nested DefaultDict Constructor
-def rec_dd():
-    return defaultdict(rec_dd)
+def recDD():
+    return defaultdict(recDD)
 
 # Copies Dict to Nested DefaultDict
-def copy_to_rec_dd(target, source):
+def copyToRecDD(target, source):
     for k,v in source.iteritems():
         if isinstance(v, dict):
-            copy_to_rec_dd(target[k], v)
+            copyToRecDD(target[k], v)
         else:
             target[k] = v
 
 # Safe chained get() function, e.g. foo.get('bar').get('baz') is safe from Nones
-def try_get(data, keys, noneVal = None):
+def tryGet(data, keys, noneVal = None):
     if not keys:
         return data or noneVal
     elif keys[0] in data.keys():
-        return try_get(data[keys[0]], keys[1:])
+        return tryGet(data[keys[0]], keys[1:])
     else:
         return noneVal
 
@@ -74,7 +74,7 @@ def dictToList(data):
     return [[data]]
 
 # Generates all the strings for our S3 file transfers
-def generate_s3_fileinfo(filename):
+def generateS3Fileinfo(filename):
     s3key = _PATH + filename
     url = '/'.join([_BASE_URL, _BUCKET, s3key])
     return filename, s3key, url
@@ -92,7 +92,7 @@ def outputFile(filebase, data):
     
 # Outputs a file locally then transfers it to S3. Overwrites on collision
 def outputJSON(filebase, data):
-    filename,s3key,_ = generate_s3_fileinfo(filebase + ".json")
+    filename,s3key,_ = generateS3Fileinfo(filebase + ".json")
     
     with open(filename, "w") as f:
         f.write(json.dumps(data))
@@ -102,7 +102,7 @@ def outputJSON(filebase, data):
 def outputCSV(filebase, data):
     data = dictToList(data)
     
-    filename,s3key,_ = generate_s3_fileinfo(filebase + ".csv")
+    filename,s3key,_ = generateS3Fileinfo(filebase + ".csv")
     
     with open(filename, "w") as f:
         wr = csv.writer(f, quoting=csv.QUOTE_ALL)
@@ -113,7 +113,7 @@ def outputCSV(filebase, data):
 
 # ## Spark: get pings, filter them, and count the permutations
 
-# In[14]:
+# In[4]:
 
 # Get pings
 start_date = _START or dt.strftime(dt.utcnow() - timedelta(1 + _LOOKBACK), "%Y%m%d")
@@ -129,7 +129,7 @@ pings = get_pings(
 )
 
 
-# In[15]:
+# In[5]:
 
 # Calculate recent data
 
@@ -150,18 +150,23 @@ def munge_pings(ping):
         status = "offered"
     else:
         status = "unknown"
-    #return status
+    
+    # Get ID and remove Telem ID
+    surveyId = tryGet(ping,["payload","surveyId"], "unknown")
+    if surveyId:
+        surveyId = surveyId.split('::', 1)[0]
+    
     return (
-        try_get(ping,["payload","surveyId"], "unknown"), 
-        try_get(ping,["meta","submissionDate"], "unknown"), 
+        surveyId,
+        tryGet(ping,["meta","submissionDate"], "unknown"), 
         status
     )
 
 
-#try:
-recent_data = pings.map(lambda p: munge_pings(p)).countByValue()
-#except Exception as e:
-#    print(e)
+try:
+    recent_data = pings.map(lambda p: munge_pings(p)).countByValue()
+except Exception as e:
+    print(e)
 recent_data
 
 
@@ -169,20 +174,22 @@ recent_data
 
 # ## Data Munging: merge with existing data, get into dict trees 
 
-# In[16]:
+# In[6]:
 
 # Get historical data
-_,_,all_url = generate_s3_fileinfo("all.json") # generate existing data url
-all_dict = rec_dd()
+_,_,all_url = generateS3Fileinfo("all.json") # generate existing data url
+all_dict = recDD()
+
 
 existing_json = json.loads( urllib.urlopen(all_url).read()) # load existing data
-copy_to_rec_dd(all_dict, existing_json) # copy into a defaultdict instead of a dict.  This is nested so it needed a copy fn (I may just be ignorant of a more elegant solution)
+
+copyToRecDD(all_dict, existing_json) # copy into a defaultdict instead of a dict.  This is nested so it needed a copy fn (I may just be ignorant of a more elegant solution)
 
 
-# In[17]:
+# In[7]:
 
 # Merge historical with recents, dump json
-recent_dict = rec_dd()
+recent_dict = recDD()
 max_date = "00000000"
 for key_trie, count in recent_data.iteritems():
     max_date = key_trie[1] if key_trie[1] > max_date else max_date
@@ -194,18 +201,18 @@ recent_dict
 
 # ## Data Export: Initialization, Local Output, AWS S3 Output
 
-# In[18]:
+# In[8]:
 
 instantiateFileTransfer()
 
 
-# In[19]:
+# In[9]:
 
 # Output All
 outputFile("all", all_dict)
 
 
-# In[20]:
+# In[10]:
 
 # Output Recent
 for date, entry in recent_dict.iteritems():
@@ -215,7 +222,12 @@ outputFile('latest',recent_dict[max_date])
 
 
 
-# In[21]:
+# In[11]:
 
 "w0000000t"
+
+
+# In[ ]:
+
+
 
